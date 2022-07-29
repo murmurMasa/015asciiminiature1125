@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ミニチュア風写真加工</title>
+<script>
+var canvas, context;            //キャンバス
+var img = new Image();          //画像
+
+function initCanvas() {
+    //キャンバスの取得
+    canvas = document.getElementById("miniature");          //キャンバスのID
+    context = canvas.getContext("2d");                      //キャンバスの描画機能を有効にする
+    //ボタン、スライダーの無効化
+    document.getElementById("reset").disabled = true;       //それぞれ無効に　reset:元の画像に戻すボタン set:ぼかしを加えるボタン y1:範囲スライダー左 y2:範囲スライダー右
+    document.getElementById("set").disabled = true;
+    document.getElementById("y1").disabled = true;
+    document.getElementById("y2").disabled = true;
+}
+
+function loadPicture(e){
+    //選択したファイルのURLを作成
+    var fileurl = URL.createObjectURL(e.files[0]);
+    img.src = fileurl;                              //画像ファイルを読み込む
+
+    //画像読み込み後キャンバスに表示
+    img.onload = function() {
+        //ボタン、スライダーの有効化
+        document.getElementById("reset").disabled = false;      //画像を読みこんだらボタンやスライダーを有効にする
+        document.getElementById("set").disabled = false;
+        document.getElementById("y1").disabled = false;
+        document.getElementById("y2").disabled = false;
+
+        //サイズを合わせる
+        canvas.width = img.width;               //キャンバスの横幅を画像の横幅にする　ただし画像表示は640×480ドット
+        canvas.height = img.height;             //キャンバスの高さを画像の高さにする
+        //スライダーの最大サイズを合わせる
+        document.getElementById("y1").max = img.height;         //スライダー左の最大値と現在値を画像の高さと同じにする
+        document.getElementById("y1").value = img.height;
+        document.getElementById("y2").max = img.height;         //スライダー右の最大値を画像の高さと同じに、現在値を0にする
+        document.getElementById("y2").value = 0;
+
+        //元画像を描画
+        draw(0);            //0は元画像
+    }
+}
+
+//　0:元画像　1:ぼかし加工
+function draw(n) {
+    //画像を描画
+    context.drawImage(img, 0, 0)            //読み込んだ画像をキャンバスに表示
+
+    //画像データを取得
+    var imageData = context.getImageData(0, 0, img.width, img.height);  //画像の横幅と高さ
+    //加工用画像データを取得
+    var newImageData = context.getImageData(0, 0, img.width, img.height);
+
+    //スライダーの値から加工範囲を取得
+    var y1 = Number(document.getElementById("y1").value);               //２つのスライダーの値
+    var y2 = Number(document.getElementById("y2").value);
+    var h1 = img.height - y1;                                           //スライダーの値を上端からの値に変換
+    var h2 = img.height - y2;
+
+    //画像データを走査
+    var r, g, b;
+    var index, dindex;
+    var offset;
+    var num;
+    for(var y=0; y<imageData.height; y++) {                     //画像の高さ（ドット数）回ループ
+        for(var x=0; x<imageData.width; x++) {                  //画像の横幅（ドット数）回ループ
+            //インデックス
+            index = (y*imageData.width+x)*4;                    //参照するドット(x,y)をimageDataの先頭からのアドレスに変換 *4はRGBAの４データ分
+
+            if((n==1) && ((y<h1) || (y>h2))) {                  //参照中のドットがぼかし範囲内にあるとき
+                //ぼかし加工
+                num = 0;
+                r = 0;
+                g = 0;
+                b = 0;
+
+                //ぼかし領域の0～60%、～80%、～90%、~100%でぼかしサイズを変更
+                if((y<h1*0.6)||(y>img.height-y2*0.6)) {
+                    offset = 5;
+                } else if ((y<h1*0.8)||(y>img.height-y2*0.8)) {
+                    offset = 4;
+                } else if ((y<h1*0.9)||(y>img.height-y2*0.9))   {       //参照中のドットがぼかし範囲のどこにあるかによってoffsetの値を変える
+                    offset = 3;
+                } else {
+                    offset = 2;
+                }
+                //周辺のRGBデータを加算
+                for (var dy=-1*offset; dy<=offset; dy++) {
+                    for (var dx=-1*offset; dx<=offset; dx++) {
+                        //インデックス
+                        dindex = ((y+dy)*imageData.width+(x+dx))*4;
+                        //画像データの範囲をチェック
+                        if((y+dy>=0)&&(y+dy<imageData.height)       //(x+dx, y+dy)が読み込んだ画像の大きさの範囲にある場合
+                            &&(x+dx>=0)&&(x+dx<imageData.width)) {
+                            r += imageData.data[dindex];            //参照中のドット±offsetの範囲内のドットの色を全部足し合わせる
+                            g += imageData.data[dindex+1];
+                            b += imageData.data[dindex+2];
+                            num++;                                  //足したドットの合計数
+                        }
+                    }
+                }
+                //周辺のRGBデータを平均化
+                r = r/num;                  //参照中のドット±offsetの範囲内のドットの色の平均値を求める
+                g = g/num;
+                b = b/num;
+            } else {
+                //ぼかし加工なし（RGBデータを取得）
+                r = imageData.data[index];
+                g = imageData.data[index+1];
+                b = imageData.data[index+2];
+            }
+
+            //画像データを加工
+            newImageData.data[index] = r;
+            newImageData.data[index+1] = g;
+            newImageData.data[index+2] = b;
+            newImageData.data[index+3] = imageData.data[index+3];       //透明度データは元の画像と同じ 
+        }
+    }
+
+    //加工後の画像を描画
+    context.putImageData(newImageData, 0, 0);
+}
+</script>
+<style>
+canvas{
+    width: 640px;
+    height: 480px;
+    border: thin solid #CCCCCC;
+}
+input[type="range"][orient="vertical"]
+{
+    writing-mode: bt-lr;
+    -webkit-appearance: slider-vertical;
+    width: 10px;
+    height: 480px;
+    padding: 0px;
+}
+form {
+    padding: 10px;
+    text-align: center;
+    width: 660px;
+    background-color: #CCCCCC;
+}
+</style>
+</head>
+<body onload="initCanvas()">
+<p>ミニチュア風写真加工</p>
+<hr>
+<canvas id="miniature"></canvas>
+<input type="range" orient="vertical" id="y1" value="480" min="0" max="480">
+<input type="range" orient="vertical" id="y2" value="0" min="0" max="480">
+<form>
+画像ファイルを選択：
+<input type="file" accept="image/jpg, image/png" onChange="loadPicture(this);">
+<input type="button" id="reset" value="元の画像に戻す" onclick="draw(0)">
+<input type="button" id="set" value="ぼかしを加える" onclick="draw(1)"><br>
+</form>
+</body>
+</html>
